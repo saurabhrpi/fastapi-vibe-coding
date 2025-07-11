@@ -118,6 +118,8 @@ async def add_document(request: DocumentRequest) -> DocumentResponse:
         else:
             raise HTTPException(status_code=500, detail="Failed to add document")
     except Exception as e:
+        import traceback
+        print(f"Failed to add document: {traceback.format_exc()}")
         raise HTTPException(status_code=500, detail=f"Failed to add document: {str(e)}")
 
 

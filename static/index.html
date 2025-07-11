@@ -247,6 +247,22 @@
             </div>
         </div>
     </div>
+    <!-- Add this after the main-layout div -->
+    <div id="addDocModal" style="display:none;position:fixed;top:0;left:0;width:100vw;height:100vh;background:rgba(0,0,0,0.3);z-index:2000;align-items:center;justify-content:center;">
+      <div style="background:white;padding:32px 24px;border-radius:16px;min-width:320px;max-width:90vw;box-shadow:0 8px 32px rgba(0,0,0,0.15);position:relative;">
+        <button id="closeAddDoc" style="position:absolute;top:8px;right:12px;background:none;border:none;font-size:20px;cursor:pointer;">✖</button>
+        <h2 style="margin-bottom:16px;font-size:20px;">Add Document</h2>
+        <form id="addDocForm">
+          <label style="font-size:14px;">Content:</label><br>
+          <textarea id="docContent" style="width:100%;height:80px;margin-bottom:10px;"></textarea><br>
+          <label style="font-size:14px;">Metadata (optional, JSON):</label><br>
+          <input id="docMetadata" style="width:100%;margin-bottom:10px;" /><br>
+          <button type="submit" class="settings-save">Add</button>
+          <span id="addDocMsg" style="font-size:13px;margin-left:10px;"></span>
+        </form>
+      </div>
+    </div>
+
     <script>
         const chatMessages = document.getElementById('chatMessages');
         const chatForm = document.getElementById('chatForm');
@@ -392,8 +408,48 @@
             addMessage("Welcome! I'm your AI assistant powered by ChatGPT and enhanced with RAG (Retrieval-Augmented Generation). I can help you with questions and provide context-aware responses using the knowledge base.", false);
             updateRAGSourcesPanel([]);
         };
+        const addDocModal = document.getElementById('addDocModal');
+        const closeAddDoc = document.getElementById('closeAddDoc');
+        const addDocForm = document.getElementById('addDocForm');
+        const docContent = document.getElementById('docContent');
+        const docMetadata = document.getElementById('docMetadata');
+        const addDocMsg = document.getElementById('addDocMsg');
+
         addDocBtn.onclick = () => {
-            alert('Document upload UI coming soon!');
+            addDocModal.style.display = 'flex';
+            addDocMsg.textContent = '';
+            docContent.value = '';
+            docMetadata.value = '';
+        };
+        closeAddDoc.onclick = () => { addDocModal.style.display = 'none'; };
+        addDocModal.onclick = (e) => { if (e.target === addDocModal) addDocModal.style.display = 'none'; };
+
+        addDocForm.onsubmit = async (e) => {
+            e.preventDefault();
+            addDocMsg.textContent = '';
+            const content = docContent.value.trim();
+            const metadata = docMetadata.value.trim();
+            if (!content) {
+                addDocMsg.textContent = 'Content is required.';
+                addDocMsg.style.color = '#e74c3c';
+                return;
+            }
+            try {
+                const res = await fetch('/add-document', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ content, metadata: metadata || '{}' })
+                });
+                if (!res.ok) throw new Error(await res.text());
+                const data = await res.json();
+                addDocMsg.textContent = data.message || 'Success!';
+                addDocMsg.style.color = '#2ecc40';
+                docContent.value = '';
+                docMetadata.value = '';
+            } catch (err) {
+                addDocMsg.textContent = 'Error: ' + err.message;
+                addDocMsg.style.color = '#e74c3c';
+            }
         };
         // Settings logic
         saveKeyBtn.onclick = () => {
