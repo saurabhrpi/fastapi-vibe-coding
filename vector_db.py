@@ -62,7 +62,7 @@ class MilvusVectorDB:
                         {"name": "primary_key", "description": "PK", "type": "INT64", "is_primary": True, "autoID": True},
                         {"name": "content", "description": "Content", "type": "VARCHAR", "max_length": 65535},
                         {"name": "metadata", "description": "Metadata", "type": "VARCHAR", "max_length": 65535},
-                        {"name": "embedding", "description": "Embedding vector", "type": "FLOAT_VECTOR", "dim": self.dimension}
+                        {"name": "vector", "description": "Embedding vector", "type": "FLOAT_VECTOR", "dim": self.dimension}
                     ],
                     "description": "Chat documents collection"
                 }
@@ -70,7 +70,7 @@ class MilvusVectorDB:
                 logger.info(f"✅ Created Milvus collection: {self.collection_name}")
                 # Create index
                 index_params = {
-                    "field_name": "embedding",
+                    "field_name": "vector",
                     "index_type": "IVF_FLAT",
                     "metric_type": "COSINE",
                     "params": {"nlist": 128}
@@ -91,7 +91,13 @@ class MilvusVectorDB:
                 model=self.embedding_model
             )
             embedding = response['data'][0]['embedding']
-            return np.array(embedding, dtype=np.float32)
+            arr = np.array(embedding, dtype=np.float32)
+            logger.info(f"Embedding shape: {arr.shape}, dtype: {arr.dtype}, first 5: {arr[:5]}")
+            if arr.shape != (self.dimension,):
+                logger.error(f"Embedding dimension mismatch: got {arr.shape}, expected {self.dimension}")
+            if np.isnan(arr).any():
+                logger.error("Embedding contains NaN values!")
+            return arr
         except Exception as e:
             logger.error(f"Error getting embedding from OpenAI: {e}")
             return np.zeros(self.dimension)
@@ -125,17 +131,15 @@ class MilvusVectorDB:
             logger.warning("Milvus collection not available")
             return []
         try:
-            query_embedding = self._get_embedding(query)
-            search_params = {
-                "data": [query_embedding.tolist()],
-                "anns_field": "embedding",
-                "param": {"metric_type": "COSINE", "params": {"nprobe": 10}},
-                "limit": top_k,
-                "output_fields": ["content", "metadata"]
-            }
-            results = self.milvus_client.search(self.collection, search_params)
+            query_embedding = self._get_embedding(query) # 'numpy.ndarray'            
+            results = self.milvus_client.search(
+                collection_name = self.collection, 
+                data = [query_embedding],  
+                limit = 3,
+                output_fields = ["content", "metadata"]
+                )
             formatted_results = []
-            for hit in results[0]:
+            for hit in results[0]:             
                 try:
                     metadata = json.loads(hit.get("metadata", "{}"))
                 except:

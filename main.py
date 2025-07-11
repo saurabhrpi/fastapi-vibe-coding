@@ -152,6 +152,7 @@ async def get_chatgpt_response_with_rag(message: str, return_sources: bool = Fal
         # Get relevant context from vector database
         context = ""
         similar_docs = vector_db.search(message, top_k=3)
+        print("similar_docs = ", similar_docs)
         sources = []
         if similar_docs:
             context_parts = []
