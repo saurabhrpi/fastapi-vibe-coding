@@ -135,7 +135,7 @@ class MilvusVectorDB:
             results = self.milvus_client.search(
                 collection_name = self.collection, 
                 data = [query_embedding],  
-                limit = 3,
+                limit = top_k,
                 output_fields = ["content", "metadata"]
                 )
             formatted_results = []
