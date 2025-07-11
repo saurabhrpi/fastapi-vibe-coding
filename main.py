@@ -4,15 +4,25 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from contextlib import asynccontextmanager
 import os
-from openai import OpenAI
 from dotenv import load_dotenv
+import json
+from vector_db import vector_db
 
 # Load environment variables
 load_dotenv()
 
-# Initialize OpenAI client
-openai_client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+# Initialize OpenAI client with error handling
+openai_client = None
 OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-3.5-turbo")
+
+try:
+    import openai
+    openai.api_key = os.getenv("OPENAI_API_KEY")
+    print("✅ OpenAI client initialized successfully")
+except Exception as e:
+    print(f"⚠️  Warning: Could not initialize OpenAI client: {e}")
+    print("   The app will run in fallback mode with simple responses.")
+    openai_client = None
 
 
 class ChatRequest(BaseModel):
@@ -21,6 +31,16 @@ class ChatRequest(BaseModel):
 
 class ChatResponse(BaseModel):
     response: str
+
+
+class DocumentRequest(BaseModel):
+    content: str
+    metadata: str = "{}"
+
+
+class DocumentResponse(BaseModel):
+    success: bool
+    message: str
 
 
 @asynccontextmanager
@@ -33,14 +53,17 @@ async def lifespan(app: FastAPI):
         print("   The chat will fall back to simple responses.")
     else:
         print("✅ OpenAI API key found. ChatGPT integration enabled.")
+    
+    print("✅ Vector database initialized. RAG functionality enabled.")
+    
     yield
     # Shutdown
     print("Shutting down FastAPI application...")
 
 
 app = FastAPI(
-    title="ChatGPT Chat API",
-    description="A FastAPI application with ChatGPT integration and beautiful chat interface",
+    title="ChatGPT Chat API with RAG",
+    description="A FastAPI application with ChatGPT integration, RAG functionality, and beautiful chat interface",
     version="1.0.0",
     lifespan=lifespan
 )
@@ -67,16 +90,46 @@ async def health_check() -> dict[str, str]:
     return {"status": "healthy"}
 
 
+@app.get("/vector-stats")
+async def get_vector_stats() -> dict:
+    """Get vector database statistics."""
+    try:
+        stats = vector_db.get_stats()
+        return stats
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to get vector stats: {str(e)}")
+
+
+@app.post("/add-document", response_model=DocumentResponse)
+async def add_document(request: DocumentRequest) -> DocumentResponse:
+    """Add a document to the vector database for RAG."""
+    try:
+        metadata = {}
+        if request.metadata:
+            try:
+                metadata = json.loads(request.metadata)
+            except json.JSONDecodeError:
+                metadata = {"raw_metadata": request.metadata}
+        
+        success = vector_db.add_document(request.content, metadata)
+        if success:
+            return DocumentResponse(success=True, message="Document added successfully")
+        else:
+            raise HTTPException(status_code=500, detail="Failed to add document")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to add document: {str(e)}")
+
+
 @app.post("/ask", response_model=ChatResponse)
 async def ask_question(request: ChatRequest) -> ChatResponse:
-    """Process a chat message and return a response using ChatGPT."""
+    """Process a chat message and return a response using ChatGPT with RAG."""
     if not request.message.strip():
         raise HTTPException(status_code=400, detail="Message cannot be empty")
     
     try:
-        # Try to use ChatGPT API
-        if os.getenv("OPENAI_API_KEY"):
-            response = await get_chatgpt_response(request.message)
+        # Try to use ChatGPT API with RAG
+        if openai.api_key:
+            response = await get_chatgpt_response_with_rag(request.message)
         else:
             # Fallback to simple responses if no API key
             response = generate_fallback_response(request.message.lower())
@@ -90,10 +143,71 @@ async def ask_question(request: ChatRequest) -> ChatResponse:
         return ChatResponse(response=fallback_response)
 
 
-async def get_chatgpt_response(message: str) -> str:
-    """Get a response from ChatGPT API."""
+async def get_chatgpt_response_with_rag(message: str) -> str:
+    """Get a response from ChatGPT API with RAG context."""
+    if not openai.api_key:
+        return generate_fallback_response(message.lower())
+    
     try:
-        response = openai_client.chat.completions.create(
+        # Get relevant context from vector database
+        context = ""
+        similar_docs = vector_db.search(message, top_k=3)
+        if similar_docs:
+            context_parts = []
+            for result in similar_docs:
+                context_parts.append(f"Relevant information: {result['document']['content']}")
+            context = "\n\n".join(context_parts)
+            context = f"\n\nContext from knowledge base:\n{context}\n\n"
+        
+        # Prepare system message with RAG context
+        system_message = """You are a helpful, friendly AI assistant with access to a knowledge base. 
+        Use the provided context to give accurate and helpful responses. 
+        If the context is relevant to the user's question, incorporate it into your response.
+        If the context is not relevant or no context is provided, respond based on your general knowledge.
+        Keep your responses concise, helpful, and engaging."""
+        
+        # Prepare messages for ChatGPT
+        messages = [
+            {
+                "role": "system",
+                "content": system_message
+            }
+        ]
+        
+        # Add context if available
+        if context:
+            messages.append({
+                "role": "user",
+                "content": f"Here is some relevant context for the upcoming question:\n{context}"
+            })
+        
+        # Add the actual user question
+        messages.append({
+            "role": "user",
+            "content": message
+        })
+        
+        response = openai.ChatCompletion.create(
+            model=OPENAI_MODEL,
+            messages=messages,
+            max_tokens=500,
+            temperature=0.7
+        )
+        
+        return response.choices[0].message.content.strip()
+        
+    except Exception as e:
+        print(f"OpenAI API error: {e}")
+        return generate_fallback_response(message.lower())
+
+
+async def get_chatgpt_response(message: str) -> str:
+    """Get a response from ChatGPT API (without RAG)."""
+    if not openai.api_key:
+        return generate_fallback_response(message.lower())
+    
+    try:
+        response = openai.ChatCompletion.create(
             model=OPENAI_MODEL,
             messages=[
                 {
@@ -113,7 +227,7 @@ async def get_chatgpt_response(message: str) -> str:
         
     except Exception as e:
         print(f"OpenAI API error: {e}")
-        raise e
+        return generate_fallback_response(message.lower())
 
 
 def generate_fallback_response(message: str) -> str:
