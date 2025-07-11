@@ -108,9 +108,9 @@ class MilvusVectorDB:
             primary_key = int(time.time() * 1000)
             data = {
                 "primary_key": primary_key,
+                "vector": embedding.tolist(),
                 "content": [content],
                 "metadata": [metadata_str],
-                "embedding": [embedding.tolist()]
             }
             self.milvus_client.insert(self.collection, data)
             logger.info(f"✅ Added document to Milvus (embedding dim: {len(embedding)})")
