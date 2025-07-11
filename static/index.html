@@ -3,85 +3,91 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>AI Chat Assistant</title>
+    <title>AI Chat Assistant with RAG</title>
     <style>
-        * {
+        body {
             margin: 0;
             padding: 0;
-            box-sizing: border-box;
-        }
-
-        body {
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
             background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
             min-height: 100vh;
             display: flex;
             justify-content: center;
-            align-items: center;
-            padding: 20px;
+            align-items: flex-start;
         }
-
-        .chat-container {
-            background: white;
+        .main-layout {
+            display: flex;
+            width: 100vw;
+            max-width: 1400px;
+            min-height: 100vh;
+            padding: 32px 0;
+            gap: 32px;
+            box-sizing: border-box;
+        }
+        .chat-panel {
+            background: #fff;
             border-radius: 20px;
-            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.1);
-            width: 100%;
+            box-shadow: 0 20px 40px rgba(0,0,0,0.08);
+            flex: 2;
+            min-width: 400px;
             max-width: 800px;
-            height: 600px;
             display: flex;
             flex-direction: column;
-            overflow: hidden;
+            height: 80vh;
         }
-
+        .sidebar {
+            background: #fff;
+            border-radius: 20px;
+            box-shadow: 0 20px 40px rgba(0,0,0,0.08);
+            flex: 1;
+            min-width: 320px;
+            max-width: 350px;
+            display: flex;
+            flex-direction: column;
+            height: 80vh;
+            padding: 32px 24px;
+            box-sizing: border-box;
+        }
         .chat-header {
             background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
             color: white;
             padding: 20px;
             text-align: center;
+            border-radius: 20px 20px 0 0;
         }
-
         .chat-header h1 {
             font-size: 24px;
             font-weight: 600;
         }
-
         .chat-messages {
             flex: 1;
             padding: 20px;
             overflow-y: auto;
             background: #f8f9fa;
         }
-
         .message {
             margin-bottom: 15px;
             display: flex;
             align-items: flex-start;
         }
-
-        .message.user {
-            justify-content: flex-end;
-        }
-
+        .message.user { justify-content: flex-end; }
         .message-content {
             max-width: 70%;
             padding: 12px 16px;
             border-radius: 18px;
             word-wrap: break-word;
         }
-
         .message.user .message-content {
             background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
             color: white;
             border-bottom-right-radius: 4px;
         }
-
         .message.assistant .message-content {
             background: white;
             color: #333;
             border: 1px solid #e1e5e9;
             border-bottom-left-radius: 4px;
         }
-
         .message-avatar {
             width: 32px;
             height: 32px;
@@ -93,28 +99,24 @@
             font-weight: bold;
             font-size: 14px;
         }
-
         .message.user .message-avatar {
             background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
             color: white;
         }
-
         .message.assistant .message-avatar {
             background: #e1e5e9;
             color: #666;
         }
-
         .chat-input-container {
             padding: 20px;
             background: white;
             border-top: 1px solid #e1e5e9;
+            border-radius: 0 0 20px 20px;
         }
-
         .chat-input-form {
             display: flex;
             gap: 10px;
         }
-
         .chat-input {
             flex: 1;
             padding: 12px 16px;
@@ -124,11 +126,7 @@
             outline: none;
             transition: border-color 0.3s ease;
         }
-
-        .chat-input:focus {
-            border-color: #667eea;
-        }
-
+        .chat-input:focus { border-color: #667eea; }
         .send-button {
             background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
             color: white;
@@ -142,218 +140,280 @@
             justify-content: center;
             transition: transform 0.2s ease;
         }
-
-        .send-button:hover {
-            transform: scale(1.05);
-        }
-
-        .send-button:disabled {
-            opacity: 0.6;
-            cursor: not-allowed;
-            transform: none;
-        }
-
-        .loading {
+        .send-button:hover { transform: scale(1.05); }
+        .send-button:disabled { opacity: 0.6; cursor: not-allowed; transform: none; }
+        .sidebar-section { margin-bottom: 32px; }
+        .sidebar-section h2 {
+            font-size: 18px;
+            margin-bottom: 10px;
+            color: #4a4a6a;
             display: flex;
             align-items: center;
-            gap: 8px;
-            color: #666;
-            font-style: italic;
+            gap: 6px;
         }
-
-        .loading-dots {
-            display: flex;
-            gap: 4px;
-        }
-
-        .loading-dots span {
-            width: 8px;
-            height: 8px;
-            border-radius: 50%;
-            background: #667eea;
-            animation: bounce 1.4s infinite ease-in-out;
-        }
-
-        .loading-dots span:nth-child(1) { animation-delay: -0.32s; }
-        .loading-dots span:nth-child(2) { animation-delay: -0.16s; }
-
-        @keyframes bounce {
-            0%, 80%, 100% { transform: scale(0); }
-            40% { transform: scale(1); }
-        }
-
-        .error-message {
-            background: #fee;
-            color: #c33;
-            padding: 10px;
+        .status-indicator { font-weight: bold; }
+        .status-green { color: #2ecc40; }
+        .status-red { color: #e74c3c; }
+        .status-yellow { color: #f1c40f; }
+        .rag-source-list { list-style: disc; margin: 8px 0 0 18px; padding: 0; font-size: 14px; color: #444; }
+        .rag-source-list li { margin-bottom: 8px; }
+        .settings-input {
+            width: 100%;
+            padding: 8px 12px;
+            border: 1.5px solid #e1e5e9;
             border-radius: 8px;
-            margin: 10px 0;
-            border: 1px solid #fcc;
+            font-size: 15px;
+            margin-bottom: 8px;
         }
-
-        @media (max-width: 768px) {
-            .chat-container {
-                height: 100vh;
-                border-radius: 0;
-            }
-            
-            .message-content {
-                max-width: 85%;
-            }
+        .settings-save {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            border-radius: 8px;
+            padding: 8px 18px;
+            font-size: 15px;
+            cursor: pointer;
+        }
+        .settings-save:disabled { opacity: 0.6; }
+        .settings-label { font-size: 14px; color: #666; margin-bottom: 4px; display: block; }
+        .settings-success { color: #2ecc40; font-size: 13px; margin-top: 4px; }
+        .settings-error { color: #e74c3c; font-size: 13px; margin-top: 4px; }
+        .sidebar hr { border: none; border-top: 1px solid #eee; margin: 18px 0; }
+        .chat-actions { display: flex; gap: 10px; justify-content: flex-end; margin-top: 8px; }
+        .chat-actions button {
+            background: #f3f3fa;
+            border: 1px solid #e1e5e9;
+            border-radius: 8px;
+            padding: 6px 14px;
+            font-size: 14px;
+            color: #555;
+            cursor: pointer;
+        }
+        .chat-actions button:hover { background: #e1e5e9; }
+        @media (max-width: 1100px) {
+            .main-layout { flex-direction: column; align-items: center; }
+            .chat-panel, .sidebar { width: 95vw; min-width: unset; max-width: unset; height: auto; }
+        }
+        @media (max-width: 700px) {
+            .main-layout { padding: 0; }
+            .chat-panel, .sidebar { border-radius: 0; }
         }
     </style>
 </head>
 <body>
-    <div class="chat-container">
-        <div class="chat-header">
-            <h1>🤖 AI Chat Assistant</h1>
-        </div>
-        
-        <div class="chat-messages" id="chatMessages">
-            <div class="message assistant">
-                <div class="message-avatar">AI</div>
-                <div class="message-content">
-                    Hello! I'm your AI assistant powered by ChatGPT. How can I help you today?
+    <div class="main-layout">
+        <div class="chat-panel">
+            <div class="chat-header">
+                <h1>🤖 AI Chat Assistant</h1>
+            </div>
+            <div class="chat-messages" id="chatMessages">
+                <div class="message assistant">
+                    <div class="message-avatar">AI</div>
+                    <div class="message-content">
+                        Welcome! I'm your AI assistant powered by ChatGPT and enhanced with RAG (Retrieval-Augmented Generation). I can help you with questions and provide context-aware responses using the knowledge base.
+                    </div>
+                </div>
+            </div>
+            <div class="chat-input-container">
+                <form class="chat-input-form" id="chatForm">
+                    <input type="text" class="chat-input" id="messageInput" placeholder="Type your message here..." autocomplete="off">
+                    <button type="submit" class="send-button" id="sendButton">➤</button>
+                </form>
+                <div class="chat-actions">
+                    <button id="clearChat">🗑️ Clear Chat</button>
+                    <button id="addDocument">➕ Add Document</button>
                 </div>
             </div>
         </div>
-        
-        <div class="chat-input-container">
-            <form class="chat-input-form" id="chatForm">
-                <input 
-                    type="text" 
-                    class="chat-input" 
-                    id="messageInput" 
-                    placeholder="Type your message here..."
-                    autocomplete="off"
-                >
-                <button type="submit" class="send-button" id="sendButton">
-                    ➤
-                </button>
-            </form>
+        <div class="sidebar">
+            <div class="sidebar-section">
+                <h2>⚙️ Settings</h2>
+                <label class="settings-label" for="openaiKeyInput">OpenAI API Key:</label>
+                <input type="password" id="openaiKeyInput" class="settings-input" placeholder="Enter your OpenAI API key">
+                <button id="saveKey" class="settings-save">Save</button>
+                <div id="settingsMsg"></div>
+            </div>
+            <hr>
+            <div class="sidebar-section">
+                <h2>📚 RAG Sources</h2>
+                <ul id="ragSources" class="rag-source-list"><li style="color:#888;">No sources found for current query</li></ul>
+            </div>
+            <hr>
+            <div class="sidebar-section">
+                <h2>📈 Status</h2>
+                <div>API Status: <span id="apiStatus" class="status-indicator status-yellow">Checking...</span></div>
+                <div>Milvus: <span id="milvusStatus" class="status-indicator status-yellow">Checking...</span></div>
+                <div id="collectionStats" style="font-size:13px;color:#666;margin-top:4px;"></div>
+            </div>
         </div>
     </div>
-
     <script>
         const chatMessages = document.getElementById('chatMessages');
         const chatForm = document.getElementById('chatForm');
         const messageInput = document.getElementById('messageInput');
         const sendButton = document.getElementById('sendButton');
+        const clearChatBtn = document.getElementById('clearChat');
+        const addDocBtn = document.getElementById('addDocument');
+        const ragSources = document.getElementById('ragSources');
+        const apiStatus = document.getElementById('apiStatus');
+        const milvusStatus = document.getElementById('milvusStatus');
+        const collectionStats = document.getElementById('collectionStats');
+        const openaiKeyInput = document.getElementById('openaiKeyInput');
+        const saveKeyBtn = document.getElementById('saveKey');
+        const settingsMsg = document.getElementById('settingsMsg');
 
-        function addMessage(content, isUser = false) {
+        let lastSources = [];
+
+        function addMessage(content, isUser = false, sources = []) {
             const messageDiv = document.createElement('div');
             messageDiv.className = `message ${isUser ? 'user' : 'assistant'}`;
-            
             const avatar = document.createElement('div');
             avatar.className = 'message-avatar';
             avatar.textContent = isUser ? 'You' : 'AI';
-            
             const messageContent = document.createElement('div');
             messageContent.className = 'message-content';
             messageContent.textContent = content;
-            
             messageDiv.appendChild(avatar);
             messageDiv.appendChild(messageContent);
             chatMessages.appendChild(messageDiv);
-            
-            // Scroll to bottom
             chatMessages.scrollTop = chatMessages.scrollHeight;
+            // If assistant and sources exist, update RAG sources panel
+            if (!isUser && sources && sources.length > 0) {
+                lastSources = sources;
+                updateRAGSourcesPanel(sources);
+            } else if (!isUser) {
+                lastSources = [];
+                updateRAGSourcesPanel([]);
+            }
         }
-
         function addLoadingMessage() {
             const messageDiv = document.createElement('div');
             messageDiv.className = 'message assistant';
             messageDiv.id = 'loadingMessage';
-            
             const avatar = document.createElement('div');
             avatar.className = 'message-avatar';
             avatar.textContent = 'AI';
-            
             const messageContent = document.createElement('div');
             messageContent.className = 'message-content loading';
-            messageContent.innerHTML = `
-                Thinking
-                <div class="loading-dots">
-                    <span></span>
-                    <span></span>
-                    <span></span>
-                </div>
-            `;
-            
+            messageContent.innerHTML = `Thinking <span class="loading-dots"><span>.</span><span>.</span><span>.</span></span>`;
             messageDiv.appendChild(avatar);
             messageDiv.appendChild(messageContent);
             chatMessages.appendChild(messageDiv);
-            
             chatMessages.scrollTop = chatMessages.scrollHeight;
         }
-
         function removeLoadingMessage() {
             const loadingMessage = document.getElementById('loadingMessage');
-            if (loadingMessage) {
-                loadingMessage.remove();
-            }
+            if (loadingMessage) loadingMessage.remove();
         }
-
         async function sendMessage(message) {
             try {
                 addLoadingMessage();
-                
                 const response = await fetch('/ask', {
                     method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                    },
+                    headers: { 'Content-Type': 'application/json', },
                     body: JSON.stringify({ message: message })
                 });
-
-                if (!response.ok) {
-                    throw new Error(`HTTP error! status: ${response.status}`);
-                }
-
+                if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
                 const data = await response.json();
                 removeLoadingMessage();
-                addMessage(data.response, false);
-                
+                addMessage(data.response, false, data.sources || []);
             } catch (error) {
                 removeLoadingMessage();
                 addMessage('Sorry, I encountered an error. Please try again.', false);
+                updateRAGSourcesPanel([]);
                 console.error('Error:', error);
             }
         }
-
+        function updateRAGSourcesPanel(sources) {
+            ragSources.innerHTML = '';
+            if (!sources || sources.length === 0) {
+                ragSources.innerHTML = '<li style="color:#888;">No sources found for current query</li>';
+                return;
+            }
+            sources.forEach(s => {
+                const li = document.createElement('li');
+                li.innerHTML = `<b>Score:</b> ${s.score.toFixed(3)}<br><b>Content:</b> ${s.content}<br><b>Metadata:</b> <code>${JSON.stringify(s.metadata)}</code>`;
+                ragSources.appendChild(li);
+            });
+        }
+        async function updateStatusBar() {
+            try {
+                const res = await fetch('/status');
+                if (!res.ok) throw new Error('Status fetch failed');
+                const data = await res.json();
+                let milvus = data.milvus || {};
+                if (data.openai) {
+                    apiStatus.textContent = 'Healthy';
+                    apiStatus.className = 'status-indicator status-green';
+                } else {
+                    apiStatus.textContent = 'Not Connected';
+                    apiStatus.className = 'status-indicator status-red';
+                }
+                if (milvus.status === 'connected') {
+                    milvusStatus.textContent = 'Healthy';
+                    milvusStatus.className = 'status-indicator status-green';
+                } else {
+                    milvusStatus.textContent = 'Disconnected';
+                    milvusStatus.className = 'status-indicator status-red';
+                }
+                if (milvus.collection_name) {
+                    collectionStats.innerHTML = `Collection: <b>${milvus.collection_name}</b> | Docs: <b>${milvus.total_entities || 0}</b>`;
+                } else {
+                    collectionStats.innerHTML = '';
+                }
+            } catch (e) {
+                apiStatus.textContent = 'Unknown';
+                apiStatus.className = 'status-indicator status-yellow';
+                milvusStatus.textContent = 'Unknown';
+                milvusStatus.className = 'status-indicator status-yellow';
+                collectionStats.innerHTML = '';
+            }
+        }
         chatForm.addEventListener('submit', async (e) => {
             e.preventDefault();
-            
             const message = messageInput.value.trim();
             if (!message) return;
-            
-            // Add user message
             addMessage(message, true);
-            
-            // Clear input
             messageInput.value = '';
-            
-            // Disable send button while processing
             sendButton.disabled = true;
-            
-            // Send message to API
             await sendMessage(message);
-            
-            // Re-enable send button
             sendButton.disabled = false;
             messageInput.focus();
         });
-
-        // Allow Enter key to send message
         messageInput.addEventListener('keypress', (e) => {
             if (e.key === 'Enter' && !e.shiftKey) {
                 e.preventDefault();
                 chatForm.dispatchEvent(new Event('submit'));
             }
         });
-
-        // Focus input on page load
         messageInput.focus();
+        clearChatBtn.onclick = () => {
+            chatMessages.innerHTML = '';
+            addMessage("Welcome! I'm your AI assistant powered by ChatGPT and enhanced with RAG (Retrieval-Augmented Generation). I can help you with questions and provide context-aware responses using the knowledge base.", false);
+            updateRAGSourcesPanel([]);
+        };
+        addDocBtn.onclick = () => {
+            alert('Document upload UI coming soon!');
+        };
+        // Settings logic
+        saveKeyBtn.onclick = () => {
+            const key = openaiKeyInput.value.trim();
+            if (!key) {
+                settingsMsg.textContent = 'Please enter a valid OpenAI API key.';
+                settingsMsg.className = 'settings-error';
+                return;
+            }
+            localStorage.setItem('openai_api_key', key);
+            settingsMsg.textContent = 'API key saved locally (for demo only).';
+            settingsMsg.className = 'settings-success';
+        };
+        // Load API key if present
+        if (localStorage.getItem('openai_api_key')) {
+            openaiKeyInput.value = localStorage.getItem('openai_api_key');
+        }
+        // Status bar update
+        updateStatusBar();
+        setInterval(updateStatusBar, 10000);
     </script>
 </body>
 </html> 

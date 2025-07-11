@@ -31,6 +31,7 @@ class ChatRequest(BaseModel):
 
 class ChatResponse(BaseModel):
     response: str
+    sources: list = []
 
 
 class DocumentRequest(BaseModel):
@@ -125,47 +126,48 @@ async def ask_question(request: ChatRequest) -> ChatResponse:
     """Process a chat message and return a response using ChatGPT with RAG."""
     if not request.message.strip():
         raise HTTPException(status_code=400, detail="Message cannot be empty")
-    
     try:
+        sources = []
         # Try to use ChatGPT API with RAG
         if openai.api_key:
-            response = await get_chatgpt_response_with_rag(request.message)
+            response, sources = await get_chatgpt_response_with_rag(request.message, return_sources=True)
         else:
             # Fallback to simple responses if no API key
             response = generate_fallback_response(request.message.lower())
-        
-        return ChatResponse(response=response)
-        
+        return ChatResponse(response=response, sources=sources)
     except Exception as e:
         print(f"Error in chat processing: {e}")
         # Fallback to simple response on error
         fallback_response = generate_fallback_response(request.message.lower())
-        return ChatResponse(response=fallback_response)
+        return ChatResponse(response=fallback_response, sources=[])
 
 
-async def get_chatgpt_response_with_rag(message: str) -> str:
-    """Get a response from ChatGPT API with RAG context."""
+async def get_chatgpt_response_with_rag(message: str, return_sources: bool = False):
+    """Get a response from ChatGPT API with RAG context and optionally return sources."""
     if not openai.api_key:
-        return generate_fallback_response(message.lower())
-    
+        return generate_fallback_response(message.lower()), [] if return_sources else generate_fallback_response(message.lower())
     try:
         # Get relevant context from vector database
         context = ""
         similar_docs = vector_db.search(message, top_k=3)
+        sources = []
         if similar_docs:
             context_parts = []
             for result in similar_docs:
                 context_parts.append(f"Relevant information: {result['document']['content']}")
+                sources.append({
+                    "content": result['document']['content'],
+                    "metadata": result['document']['metadata'],
+                    "score": result['score']
+                })
             context = "\n\n".join(context_parts)
             context = f"\n\nContext from knowledge base:\n{context}\n\n"
-        
         # Prepare system message with RAG context
-        system_message = """You are a helpful, friendly AI assistant with access to a knowledge base. 
-        Use the provided context to give accurate and helpful responses. 
-        If the context is relevant to the user's question, incorporate it into your response.
-        If the context is not relevant or no context is provided, respond based on your general knowledge.
+        system_message = """You are a helpful, friendly AI assistant with access to a knowledge base. \
+        Use the provided context to give accurate and helpful responses. \
+        If the context is relevant to the user's question, incorporate it into your response.\
+        If the context is not relevant or no context is provided, respond based on your general knowledge.\
         Keep your responses concise, helpful, and engaging."""
-        
         # Prepare messages for ChatGPT
         messages = [
             {
@@ -173,31 +175,30 @@ async def get_chatgpt_response_with_rag(message: str) -> str:
                 "content": system_message
             }
         ]
-        
         # Add context if available
         if context:
             messages.append({
                 "role": "user",
                 "content": f"Here is some relevant context for the upcoming question:\n{context}"
             })
-        
         # Add the actual user question
         messages.append({
             "role": "user",
             "content": message
         })
-        
         response = openai.ChatCompletion.create(
             model=OPENAI_MODEL,
             messages=messages,
             max_tokens=500,
             temperature=0.7
         )
-        
+        if return_sources:
+            return response.choices[0].message.content.strip(), sources
         return response.choices[0].message.content.strip()
-        
     except Exception as e:
         print(f"OpenAI API error: {e}")
+        if return_sources:
+            return generate_fallback_response(message.lower()), []
         return generate_fallback_response(message.lower())
 
 
@@ -294,6 +295,17 @@ def generate_fallback_response(message: str) -> str:
             "That's a great point! What specifically would you like to know?"
         ]
         return random.choice(responses)
+
+
+@app.get("/status")
+async def status():
+    """Return Milvus/OpenAI/collection status for UI display."""
+    stats = vector_db.get_stats()
+    openai_status = bool(openai.api_key)
+    return {
+        "milvus": stats,
+        "openai": openai_status
+    }
 
 
 if __name__ == "__main__":
